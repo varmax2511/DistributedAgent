@@ -9,8 +9,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import com.varun.agent.event.type.AgentEvent;
-import com.varun.corejavautils.io.CoreFileUtils;
-import com.varun.corejavautils.jaxb.JaxBMarshalUnMarshalUtil;
+import com.varun.agent.corejavautils.io.CoreFileUtils;
+import com.varun.agent.corejavautils.jaxb.JaxBMarshalUnMarshalUtil;
 
 /**
  * This class will process an {@link ArchiveEntry} and write the archive details

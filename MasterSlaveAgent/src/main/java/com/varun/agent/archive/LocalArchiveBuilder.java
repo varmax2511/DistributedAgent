@@ -18,7 +18,7 @@ import com.varun.agent.config.model.Host;
 import com.varun.agent.crawler.FileCrawler;
 import com.varun.agent.event.processor.FileEventProcessor;
 import com.varun.agent.event.type.FileEvent;
-import com.varun.corejavautils.event.Event;
+import com.varun.agent.corejavautils.event.Event;
 
 /**
  * This class is responsible for all archive building operations.
