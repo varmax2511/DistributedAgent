@@ -8,8 +8,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import com.varun.agent.config.model.Configuration;
-import com.varun.corejavautils.io.CoreFileUtils;
-import com.varun.corejavautils.jaxb.JaxBMarshalUnMarshalUtil;
+import com.varun.agent.corejavautils.io.CoreFileUtils;
+import com.varun.agent.corejavautils.jaxb.JaxBMarshalUnMarshalUtil;
 
 /**
  * Utility class to validate agent configuration

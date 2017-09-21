@@ -16,7 +16,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import com.varun.agent.config.model.Pattern;
-import com.varun.agent.corejavautils.core.RegexUtil;
+import com.varun.agent.core.RegexUtil;
 import com.varun.agent.corejavautils.io.PathRegexFileFilter;
 
 /**
