@@ -1,0 +1,396 @@
+  Design Document
+  ===================
+  March 26, 2017
+  
+  Agent
+  ---------
+  Agent is responsible for data collection and packaging.
+
+  - A multi-threaded utility which can spawn multi-threads depending upon work load.
+  - The agent should be standalone module with command line interface to control
+    its configuration.
+  - The agent must have support to include/exclude file patterns and directory patterns.
+  - The agent must be capable of collecting files on a rolling basis.
+  - It should not only just collect documents but also meta-data associated with
+    those documents.
+  - It should be able to compress archives
+  - Should be fail-safe.
+  - supports Master-Slave architecture to collect data from multiple nodes and bring it on single node.
+  - can transport data across network using sftp, nfs or an upload api (advanced) 
+ 
+ - Collects events
+  Q. What is an event?
+  An event can be an action to perform:
+   E.g: A directory path specified contains 10 matching files,
+   each file is an event
+   Event{
+     event id
+     event timestamp
+     event type - File, stream
+     event location: path
+     properties Map<String, List>
+   }
+   
+   Each event will be identified by a unique event id. For now for a file event
+   event id  = hash (hostname + absolute file path + timestamp)
+   File event {
+      id
+      type
+      timestamp
+      file path
+      startbyte
+      endByte
+      size
+   }
+   
+   Each event is a task to be performed, but each event cannot be considered 
+   independently, as lets say we find 10 files of equal size in one directory 
+   and 2 files in two separate directories, in this case the 10 files will be 
+   arranged sequentially in memory so 2 threads can pickup the 10 files with 
+   same speed and 1 can be used to pickup the remaining 2.
+   Realistically on one machine we might be able to use just one thread and copy
+   data as disk seek with multiple threads may also render same performance.
+   Q.How to adjust this info in event??
+     Maybe we can add this responsibility in the processor of the events
+   
+   Moving on with the above use case, lets say we received that 12 file events. 
+   Each event type will have its own processor, so for file events, we will have
+   a FileEventProcessor. The file event processor interface should lay the basic 
+   structure which needs to be implemented and used. Agent will expect a event
+   type processor configured else it will skip the events.
+   
+   For our above use case, the file event processor will pick up these files
+   and store them in a folder.
+  
+   collection-event-info.xml 
+  ---------------------------------
+   This file will be stored at the root of the collection folder which will have 
+   info for each event and some information regarding the collection created.
+   like: hostname, collection-name
+   
+   This file will be used to store history of files collected by the agent. The
+   information available in this file will be used to not pickup files which
+   have not changed since last collection
+   
+   
+   Q. What if we want to add some use case specific info in the collection-event-info.xml?
+   - E.g for OWSM QA use case we require info about host machine, 12.properties info, etc.
+   Ans. We will have one default implementation of creating the collection-event-info.xml
+        but we can provide a interface/abstract class which can be used to pass
+        custom implementation of file generation
+ 
+   Now at this point we have a folder which is containing all the files in replicated
+   directory structure in one root folder together with collection-event-info.xml
+   
+   Q. In single node use case, both the actual files and copied files are on same
+      machine, isn't this redundancy, can't we bypass agent and process original files
+     directly.
+   Ans. Yes, but the actual files may/may not exist at the time of file processing.
+     Its also possible that some of the files were processed at timestamp X
+     and other were processed at timestamp Y, we need the processing of one snapshot.
+  
+  Q. Should we compress the copied files, if yes, under which use case?
+  Ans. Lets breakdown by use-cases
+      <b>Single node collection & processing</b>
+    - Under this use case, Voogle is run on a single machine and data is not to
+      be sent over wire. Here compressing the data and then decompressing it on
+      same machine for processing makes no sense. So for single node use case
+      we do not want to compress collected data at the time of processing.
+      However, we will compress the collected data post processing as part of
+      cleanup for archiving purposes.
+    - <b>Multi-node collection, Single node processing</b>
+      Here data is being collected in Master-Slave configuration where Voogle is
+      being executed on host A and data is being collected from host A, B and C
+      Slave agents running on host B and C need to send data over wire and hence
+      they need to compress this data.
+    - <b>Multi-Node collection & processing </b>
+      Almost same as single node collection, so no compression for processing.
+      
+   JMX Mbean
+   Agent should expose a JMX Mbean to allow management using JConsole.
+   
+   
+   Rolling uploads
+   Use case: 
+   A QA personnel is executing a test suite and expects to get logs related to this
+   execution. Test execution logs are generated only during test execution but
+   Server is dumping logs in some log files on a continuous basis.
+   Say log file is A.out, the logs are so huge that every 20 seconds the file
+   gets truncated at 1 MB and its saved A.out0001 and the fresh logs are now
+   pushed in A.out
+   
+   Q. When will the agent run??
+   Ans. 1. Manual: User executes the agent when he/she wants to index data and search
+       over it.
+       2. Periodic: User sets a time quantum. Once the time quantum elapsed, the 
+       agent will run.    
+       3. Event: Agent has some event handler, every time that event is generated
+          the handler catches the event and executes agent.
+          
+    Solution:
+    Manual
+    User can configure their scripts to execute agent as soon as their test suite
+    execution is complete.      
+
+    Periodic
+    User can configure the agent to run every 5 minutes to pick up data for the
+    next 1 hour.
+    
+    Event
+    User can configure an event handler which expects a specific event on completion
+    of test suite say a marker file is generated in a location. The handler
+    will then execute the agent.
+
+   References:
+   http://edusagar.com/articles/view/23/Inode-file-structure-on-Unix
+  
+  
+  
+  
+  Use case: (single node)
+  An application server is deployed to test applications. The application server 
+ is continuously dumping logs in a defined directory. The applications deployed
+ are also dumping logs in directory as well as console using the java output stream.
+ We also have some marker files and other logs in some defined directories.
+ 
+ - The agent can be configured with each of these directories and whether to read
+ data recursively or not.
+ - The agent can be started with the server start such that it will collect logs
+   post every test execution complete or on a periodic basis.
+
+ 
+ Use-case
+ -----------
+ A DEV/QA personnel is analyzing a report issue. The issue was reported on
+ customer end and hence all the generated log files and dump are available
+ on remote machine. Now the personnel wants to use voogle to analyze these logs
+ 
+ Q. Should he/she first copy the logs from remote machine, then run voogle 
+    which will first run the agent and again create a copy and then process?
+  Ideally a user will expect:
+ 1. User can copy the logs manually from locations and put it in a folder on his
+    machine. Voogle can then be configured to not run any agent but directly process
+    the logs from the user specified location and provide results.
+    OR
+ 2. Voogle can be configured with the various remote directory locations from 
+    where agent can pick up the logs and bring it on user machine and then start
+    processing.
+    
+ 
+ Anyhow, there can be multiple sources for log files. Like maybe a customer shared
+ the logs in a bug attachment or sent it via email or file transfer.
+ In this scenario, a user will expect for voogle to be run directly over the folder
+ specified by the user locally and do the processing without execution of any voogle
+ agent.
+ 
+ 
+ 
+ Archive trimming
+ -----------------
+ Agent uploads/archives/milestones are supposed to be within a size limit.
+ This will have the following advantages:
+ - When these uploads are sent to the processor then each task will be
+   within a approximate size limit.
+ - This will allow processor to pick up tasks while agent is collecting the 
+   uploads of huge sizes.
+ - This will help in uploading of archives from remote hosts
+ 
+ 
+   Use case:
+   ---------
+   Lets say for now we fix the agent upload size to be maximum of 100 MB
+   
+   1. Agent finds multiple files where each file size is less than 1MB but
+     the total size of all the files is 150 MB.
+      
+      Agent should maintain the size of files processed in an upload
+      and the moment the size starts nearing 100MB, it should stop
+      processing.
+      
+      Every file event will contain a startByte, endByte and size information.
+      Agent will first check the size of the file and if adding the size of the
+      file doesn't exceed the archive permissible limit then the agent will
+      copy the complete file.
+      Else the agent will generate an new event with the same id. 
+      
+      Agent should then read such file in bytes and stop consuming bytes
+      on encountering a new line when nearing 100MB. The agent will then mark 
+      the archive as milestone achieved.
+      The remaining file should be processed in a new event with different 
+      startByte and endByte and size information
+      
+      Q. We plan to create event information before actually copying the files,
+         What if the file gets changed by the time we reach to collect it?
+      Ans. In event we mark the file startByte say as 0 and endByte as the size
+           of the file at the scan time. When the event is used by agent to collect
+           file then we will reference only the provided start and end bytes to
+           capture data.
+      Q. What if by the time you started capturing data the file got moved in a separate
+         file say X.out0001?
+      Ans. Then it will be available in the next scan
+      Q. For files where we trim the file content due to archive size what will happen
+         in the above scenario.
+      Ans. For now we will lose them.
+      
+      Q. Should every trim file event be given the same event id? 
+      Ans. Yes, event id is supposed to be unique across voogle for a file scanned
+           at a particular instant of time.
+      
+      Q. What if the size of the archive so far is 30 MB but the next event
+         received itself is of 100 MB?
+      Ans. Agent should then read such file in bytes and stop consuming bytes
+      on encountering a new line when nearing 100MB. The agent will then mark 
+      the archive as milestone achieved.
+      The remaining file should be processed in a new event with different 
+      startByte and endByte.
+      
+      Q. What if the first event received by agent is more than 100 MB?
+        repeat same process as above
+       
+      Q. How to identify that the next upload belongs to the same file?
+      Ans. Ideally we should see the entire log as one file on the UX
+      
+      So that means that both the agent and the processor must be able to
+      assign a unique id to the file event. 
+      Filename_timestamp should be unique for a file collected.
+      this can be used as an event id. Whenever a large file is trimmed,
+      we can generate a new event for that file specifying the same timestamp.
+      This will generate the identical event id.
+      Agent can then treat it as a new event with a startByte value.
+      
+      However, once it reaches the processor, then since it will find
+      that the event id already exists, it will merge the file in the
+      existing file document.
+      
+      Q. Filename + timestamp is not unique. How to resolve this
+      Ans File name + timestamp can occur if a file with same name is encountered
+          during the agent scan. Using filepath + timestamp will be too huge a String.
+          But what if event id is a hash of hostname + filepath+ timestamp. The hash will be
+          unique for a pair of filepath and timestamp and will also be of a reasonable
+          size
+          
+          
+          
+          
+         
+     Event Processor
+     ----------------
+     An event processor can be used at various stages of the application. An event
+     can be of many types and can be coming from an external application or within
+     the same application. An event processor is required which can handle an event
+     and process it.
+     All event processors are expected to have a common structure like:
+     
+     eventprocessor {
+        int process(event)
+     }
+     
+     We can have multiple event processors for the same event.
+     
+     Q. Can event processors be chained?
+        EP1(EP2(EP3(event)))
+        There might be event processing which will require that a particular
+        process precedes the another. In such scenarios it will be a good if
+        we can chain the event processor.
+        
+        - We use visitor pattern when we want to visit the visitable entity without
+          changing the source code of the event.
+       - As per wikipedia 'the visitor design pattern is a way of separating an 
+         algorithm from an object structure on which it operates'
+        
+        No, the above description is for visitor pattern and method chaining.
+        Method chaining is when each interior method returns an object which 
+        is consumed by the parent method in the chain.
+        
+        Visitor pattern is used when we have a particular instance and we want 
+        multiple processors to visit that instance for a read only purpose.
+        
+        Idea is that we want the flexibility to run multiple event processors
+        on the same event such that each processor will consume the event and
+        perform some operation and maybe add settings to the event.
+        
+        Q. Isn't this possible in the present architecture?
+        Ans. Actually yes, we can run each processor on the event and make changes.
+        
+        PS: let me read more about it.
+        
+        References:
+        http://howtodoinjava.com/design-patterns/behavioral/visitor-design-pattern-example-tutorial/
+        https://en.wikipedia.org/wiki/Method_chaining
+   
+   
+ 
+       Archive Builder
+      ------------------
+      We need an archive builder which will be responsible for building archives 
+      on a single host
+      
+      - Archive builder will be responsible for scanning all the directories configured
+        and get a list of file events.
+      - The archive builder can then create a tree where each internal node is a directory
+        and the leaves are the files to be fetched.
+      - Archive builder will assess the number of file events and based on this
+        take a decision on the number of file event processors to spawn. 
+        On a single host using a single thread will be useful if all files are
+        in sequential memory block as it will cause minimum disk head movement,
+        also if we have multiple threads each reading a different file then the
+        disk head to be moved to and fro a lot which will cause delay.
+        
+      - Once a file event processor has been assigned the file events the builder
+        shall wait for an acknowledgement from the builder over the events procesed
+        successfully. These events will then be written over in the collection-event-info.xml
+     -  Sometimes some events will be partially processed and in such scenarios 
+        a new file event needs to be generated. Here the archive builder will
+        be responsible to check the file event which have been marked partially
+        complete. For such events the builder will create a new event with
+        startByte as incomplete event's endByte + 1 and endByte as size().  
+     
+   Proposed config xml structure
+<configuration>
+<hostname>
+  <metadata>
+     <product></product>
+     <submitter>
+          <name></name>
+          <email></email>
+    </submitter>
+  </metadata>
+  <directories>
+       <directory>
+            <path>
+            <patterns>
+              <dir-include></dir-include>
+              <dir-exclude></dir-exclude>
+             <file-include></file-include>
+             <file-exclude></file-exclude>
+         </pattern>
+       </directory>
+  </directories>
+</hostname>
+</configuration>      
+  
+ 
+ FileTrimmer-archivetrimmer
+ don't take files which are greater than the 
+    archive upper bound - archive current size
+    
+ History
+ Collection upload history using collection id 
+ 
+ 
+ TODO:
+ - write a statistics file in archive. This should contain
+   collection name, number of events, metadata passed such as submitter
+   time of archiving, archive size
+
+ - Configure agent for IndexMode.Delta. Under this mode, agent should run as 
+   a daemon process and perform uploads on a periodic basis.
+ - Maintain history for a unique collection name if IndexMode is DELTA
+    - History should contain mapping of file absolute path to file event details 
+      such as last modified timestamp, startByte and endByte, startTimeMS, endTimeMS
+    - History should be an xml file which can be easily transformed in java object
+    - The history file for one collection name should support writing in append mode.
+    - Agent will contain a map in memory which will map the collection name to location
+      of its history file.
+ 
+  
