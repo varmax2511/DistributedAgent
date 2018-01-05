@@ -393,4 +393,14 @@
     - Agent will contain a map in memory which will map the collection name to location
       of its history file.
  
+ 
+ Master Slave agent architecture:
+ Why?
+ This will be a distributed agent which will allow collection from multiple hosts but via a master node
+ that will receive the uploads from each slave and then upload the data in a pipeline.
+ 
+ Why not each slave upload his/her archive directly?
+ 
+ 
+ 
   
